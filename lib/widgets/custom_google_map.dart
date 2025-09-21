@@ -45,7 +45,8 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   List<LatLng> _routePoints = [];
 
   // Google Directions API
-  static const String _googleDirectionsApiKey = 'AIzaSyCCOlStSbMeZ6qNoHO9Dz0KODmfpgWcXTQ';
+  static const String _googleDirectionsApiKey =
+      'AIzaSyCCOlStSbMeZ6qNoHO9Dz0KODmfpgWcXTQ';
   static const String _googleDirectionsUrl =
       'https://maps.googleapis.com/maps/api/directions/json';
 
