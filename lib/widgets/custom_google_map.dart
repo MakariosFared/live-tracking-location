@@ -71,7 +71,7 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
 
   void _initializeApp() {
     initialCameraPosition = const CameraPosition(
-      zoom: 14,
+      zoom: 16,
       target: LatLng(31.187084851056554, 29.928110526889437),
     );
 
@@ -1053,7 +1053,7 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   void _moveCameraToLocation(LatLng location) {
     googleMapController?.animateCamera(
       CameraUpdate.newCameraPosition(
-        CameraPosition(target: location, zoom: 15),
+        CameraPosition(target: location, zoom: 16),
       ),
     );
   }
