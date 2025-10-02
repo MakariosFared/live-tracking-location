@@ -2,11 +2,33 @@
   "rules": {
     "rides": {
       "$rideId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['riderId', 'status', 'pickup', 'destination'])",
         "driverLocation": {
           ".read": true,
           ".write": true,
           ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('timestamp').isNumber()"
+        },
+        "riderLocation": {
+          ".read": true,
+          ".write": true,
+          ".validate": "newData.hasChildren(['lat', 'lng', 'timestamp']) && newData.child('lat').isNumber() && newData.child('lng').isNumber() && newData.child('timestamp').isNumber()"
         }
+      }
+    },
+    "drivers": {
+      "$driverId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['name', 'isOnline'])"
+      }
+    },
+    "riders": {
+      "$riderId": {
+        ".read": true,
+        ".write": true,
+        ".validate": "newData.hasChildren(['name', 'isOnline'])"
       }
     }
   }

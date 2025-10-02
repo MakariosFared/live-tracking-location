@@ -56,6 +56,9 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   StreamSubscription<DatabaseEvent>? _driverLocationStream;
   StreamSubscription<DatabaseEvent>? _rideRequestStream;
 
+  // Debouncing for API calls
+  Timer? _routeUpdateTimer;
+
   // Map
   GoogleMapController? googleMapController;
   Set<Marker> markers = {};
@@ -97,6 +100,7 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
     _rideStream?.cancel();
     _driverLocationStream?.cancel();
     _rideRequestStream?.cancel();
+    _routeUpdateTimer?.cancel();
     _unregisterUser();
     super.dispose();
   }
@@ -156,23 +160,27 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
 
           // Mode toggle button
           Positioned(
-            top: 16,
-            right: 16,
+            top: 20,
+            right: 20,
             child: FloatingActionButton(
               onPressed: _toggleMode,
               backgroundColor: _isDriverMode ? Colors.green : Colors.blue,
               child: Icon(_isDriverMode ? Icons.drive_eta : Icons.person),
+              tooltip: _isDriverMode
+                  ? 'Switch to Rider Mode'
+                  : 'Switch to Driver Mode',
             ),
           ),
 
           // GPS Location button
           Positioned(
-            bottom: 100,
-            right: 16,
+            bottom: 120,
+            right: 20,
             child: FloatingActionButton(
               onPressed: _getCurrentLocation,
               backgroundColor: Colors.orange,
               child: const Icon(Icons.my_location),
+              tooltip: 'Get Current Location',
             ),
           ),
 
@@ -180,48 +188,52 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
           if (_isDriverMode) ...[
             // Start/Stop tracking button
             Positioned(
-              bottom: 180,
-              right: 16,
+              bottom: 200,
+              right: 20,
               child: FloatingActionButton(
                 onPressed: _toggleTracking,
                 backgroundColor: _isTrackingActive ? Colors.red : Colors.green,
                 child: Icon(_isTrackingActive ? Icons.stop : Icons.play_arrow),
+                tooltip: _isTrackingActive ? 'Stop Tracking' : 'Start Tracking',
               ),
             ),
             // Accept ride button (when ride is requested)
             if (_rideStatus == 'requested')
               Positioned(
-                bottom: 260,
-                right: 16,
+                bottom: 280,
+                right: 20,
                 child: FloatingActionButton.extended(
                   onPressed: _acceptRide,
                   backgroundColor: Colors.green,
                   icon: const Icon(Icons.check),
                   label: const Text('Accept Ride'),
+                  tooltip: 'Accept this ride request',
                 ),
               ),
             // Start ride button (when ride is accepted)
             if (_rideStatus == 'accepted')
               Positioned(
-                bottom: 260,
-                right: 16,
+                bottom: 280,
+                right: 20,
                 child: FloatingActionButton.extended(
                   onPressed: _startRide,
                   backgroundColor: Colors.blue,
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Start Ride'),
+                  tooltip: 'Start the ride',
                 ),
               ),
             // Complete ride button (when ride is started)
             if (_rideStatus == 'started')
               Positioned(
-                bottom: 260,
-                right: 16,
+                bottom: 280,
+                right: 20,
                 child: FloatingActionButton.extended(
                   onPressed: _completeRide,
                   backgroundColor: Colors.green,
                   icon: const Icon(Icons.check_circle),
                   label: const Text('Complete Ride'),
+                  tooltip: 'Mark ride as completed',
                 ),
               ),
           ],
@@ -230,22 +242,24 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
           if (!_isDriverMode) ...[
             // Set pickup location button
             Positioned(
-              bottom: 180,
-              right: 16,
+              bottom: 200,
+              right: 20,
               child: FloatingActionButton(
                 onPressed: _setPickupLocation,
                 backgroundColor: Colors.purple,
                 child: const Icon(Icons.location_on),
+                tooltip: 'Set Pickup Location',
               ),
             ),
             // Set destination button
             Positioned(
-              bottom: 260,
-              right: 16,
+              bottom: 280,
+              right: 20,
               child: FloatingActionButton(
                 onPressed: _setDestinationLocation,
                 backgroundColor: Colors.red,
                 child: const Icon(Icons.place),
+                tooltip: 'Set Destination',
               ),
             ),
             // Request ride button
@@ -253,38 +267,47 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
                 _destinationLocation != null &&
                 _rideStatus == 'idle')
               Positioned(
-                bottom: 340,
-                right: 16,
+                bottom: 360,
+                right: 20,
                 child: FloatingActionButton.extended(
                   onPressed: _requestRide,
                   backgroundColor: Colors.blue,
                   icon: const Icon(Icons.local_taxi),
                   label: const Text('Request Ride'),
+                  tooltip: 'Request a ride',
                 ),
               ),
             // Cancel ride button
             if (_rideStatus == 'requested' || _rideStatus == 'accepted')
               Positioned(
-                bottom: 340,
-                right: 16,
+                bottom: 360,
+                right: 20,
                 child: FloatingActionButton.extended(
                   onPressed: _cancelRide,
                   backgroundColor: Colors.red,
                   icon: const Icon(Icons.cancel),
                   label: const Text('Cancel Ride'),
+                  tooltip: 'Cancel current ride',
                 ),
               ),
           ],
 
           // Status and ride info
           Positioned(
-            bottom: 16,
-            left: 16,
+            bottom: 20,
+            left: 20,
             child: Container(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
                 color: Colors.black87,
-                borderRadius: BorderRadius.circular(8),
+                borderRadius: BorderRadius.circular(12),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -292,18 +315,40 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
                 children: [
                   Text(
                     _getStatusMessage(),
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
+                  const SizedBox(height: 8),
                   if (_currentRideId.isNotEmpty)
                     Text(
                       'Ride ID: ${_currentRideId.substring(_currentRideId.length - 6)}',
                       style: const TextStyle(color: Colors.grey, fontSize: 12),
                     ),
-                  if (_estimatedFare > 0)
+                  if (_estimatedFare > 0) ...[
+                    const SizedBox(height: 4),
                     Text(
                       'Estimated Fare: \$${_estimatedFare.toStringAsFixed(2)}',
-                      style: const TextStyle(color: Colors.green, fontSize: 12),
+                      style: const TextStyle(
+                        color: Colors.green,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
+                  ],
+                  if (_distanceBetween > 0) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Distance: ${_distanceBetween.toStringAsFixed(1)}m',
+                      style: const TextStyle(
+                        color: Colors.orange,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -332,6 +377,12 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
       _rideStatus = 'idle';
       _currentRideId = '';
       _routePoints.clear();
+      _pickupLocation = null;
+      _destinationLocation = null;
+      _riderLocation = null;
+      _driverLocation = null;
+      _estimatedFare = 0.0;
+      _distanceBetween = 0.0;
     });
 
     // Cancel previous streams
@@ -466,6 +517,7 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
       'currentRideId': rideId,
     });
 
+    _loadRideData(rideId);
     _listenToRideUpdates();
     _showSnackBar('Ride accepted!');
   }
@@ -504,6 +556,13 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
       _isTrackingActive = false;
     });
 
+    // Clean up streams
+    _positionStream?.cancel();
+    _rideStream?.cancel();
+    _driverLocationStream?.cancel();
+    _rideRequestStream?.cancel();
+    _routeUpdateTimer?.cancel();
+
     _ridesRef.child(_currentRideId).update({
       'status': 'completed',
       'completedAt': DateTime.now().millisecondsSinceEpoch,
@@ -517,6 +576,13 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
     setState(() {
       _currentRideId = '';
       _rideStatus = 'idle';
+      _pickupLocation = null;
+      _destinationLocation = null;
+      _riderLocation = null;
+      _driverLocation = null;
+      _routePoints.clear();
+      _estimatedFare = 0.0;
+      _distanceBetween = 0.0;
     });
 
     _showSnackBar('Ride completed!');
@@ -539,45 +605,82 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
         Geolocator.getPositionStream(
           locationSettings: const LocationSettings(
             accuracy: LocationAccuracy.bestForNavigation,
-            distanceFilter: 3,
+            distanceFilter: 10, // Increased from 3 to 10 meters
           ),
-        ).listen((position) async {
-          setState(() {
-            _driverLocation = LatLng(position.latitude, position.longitude);
-            _userLocation = _driverLocation;
-          });
+        ).listen(
+          (position) async {
+            try {
+              // Check location accuracy
+              if (position.accuracy > 100) {
+                _showSnackBar('Poor GPS signal. Please move to open area.');
+                return;
+              }
 
-          // Update driver location in Firebase
-          await _driversRef.child(_userId).update({
-            'location': {
-              'lat': _driverLocation!.latitude,
-              'lng': _driverLocation!.longitude,
-            },
-            'lastSeen': ServerValue.timestamp,
-          });
+              setState(() {
+                _driverLocation = LatLng(position.latitude, position.longitude);
+                _userLocation = _driverLocation;
+              });
 
-          // Update ride location if active
-          if (_isRideActive && _currentRideId.isNotEmpty) {
-            await _ridesRef.child(_currentRideId).child('driverLocation').set({
-              'lat': _driverLocation!.latitude,
-              'lng': _driverLocation!.longitude,
-              'timestamp': ServerValue.timestamp,
-            });
-          }
+              // Update driver location in Firebase with error handling
+              try {
+                await _driversRef.child(_userId).update({
+                  'location': {
+                    'lat': _driverLocation!.latitude,
+                    'lng': _driverLocation!.longitude,
+                  },
+                  'lastSeen': ServerValue.timestamp,
+                });
+              } catch (e) {
+                print('Error updating driver location: $e');
+                _showSnackBar('Failed to update location');
+              }
 
-          _updateMarkers();
-          _calculateDistance();
+              // Update ride location if active
+              if (_isRideActive && _currentRideId.isNotEmpty) {
+                try {
+                  await _ridesRef
+                      .child(_currentRideId)
+                      .child('driverLocation')
+                      .set({
+                        'lat': _driverLocation!.latitude,
+                        'lng': _driverLocation!.longitude,
+                        'timestamp': ServerValue.timestamp,
+                      });
+                } catch (e) {
+                  print('Error updating ride location: $e');
+                }
+              }
 
-          // Get real routes if needed
-          if (_isRideActive && _pickupLocation != null) {
-            if (_rideStatus == 'accepted') {
-              _getRouteDirections(_driverLocation!, _pickupLocation!);
-            } else if (_rideStatus == 'started' &&
-                _destinationLocation != null) {
-              _getRouteDirections(_driverLocation!, _destinationLocation!);
+              _updateMarkers();
+              _calculateDistance();
+
+              // Get real routes if needed (with debouncing)
+              if (_isRideActive && _pickupLocation != null) {
+                if (_rideStatus == 'accepted') {
+                  // Driver to pickup location
+                  _getRouteDirectionsWithDebounce(
+                    _driverLocation!,
+                    _pickupLocation!,
+                  );
+                } else if (_rideStatus == 'started' &&
+                    _destinationLocation != null) {
+                  // Driver to destination location
+                  _getRouteDirectionsWithDebounce(
+                    _driverLocation!,
+                    _destinationLocation!,
+                  );
+                }
+              }
+            } catch (e) {
+              print('Error in location tracking: $e');
+              _showSnackBar('Location tracking error');
             }
-          }
-        });
+          },
+          onError: (error) {
+            print('Location stream error: $error');
+            _showSnackBar('GPS error: ${error.toString()}');
+          },
+        );
   }
 
   void _stopLocationTracking() {
@@ -590,6 +693,11 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   void _startRiderMode() {
     // Cancel any existing stream first
     _driverLocationStream?.cancel();
+
+    // Start rider location tracking if ride is active
+    if (_currentRideId.isNotEmpty && _rideStatus != 'idle') {
+      _startRiderLocationTracking();
+    }
 
     // Listen to Firebase for driver location
     _driverLocationStream = _ridesRef
@@ -605,9 +713,12 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
             _updateMarkers();
             _calculateDistance();
 
-            // Get real route between driver and rider
-            if (_riderLocation != null && _driverLocation != null) {
-              _getRouteDirections(_driverLocation!, _riderLocation!);
+            // Get route from driver to pickup (not to rider)
+            if (_pickupLocation != null && _driverLocation != null) {
+              _getRouteDirectionsWithDebounce(
+                _driverLocation!,
+                _pickupLocation!,
+              );
             }
 
             // Move camera to follow driver if ride is active
@@ -620,9 +731,68 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
         });
   }
 
-  void _requestRide() {
+  void _startRiderLocationTracking() {
+    _positionStream =
+        Geolocator.getPositionStream(
+          locationSettings: const LocationSettings(
+            accuracy: LocationAccuracy.high,
+            distanceFilter: 5, // Update every 5 meters
+          ),
+        ).listen(
+          (position) async {
+            try {
+              // Check location accuracy
+              if (position.accuracy > 50) {
+                return; // Skip poor accuracy updates
+              }
+
+              setState(() {
+                _riderLocation = LatLng(position.latitude, position.longitude);
+                _userLocation = _riderLocation;
+              });
+
+              // Update rider location in Firebase
+              try {
+                await _ridesRef
+                    .child(_currentRideId)
+                    .child('riderLocation')
+                    .set({
+                      'lat': _riderLocation!.latitude,
+                      'lng': _riderLocation!.longitude,
+                      'timestamp': ServerValue.timestamp,
+                    });
+
+                await _ridersRef.child(_userId).update({
+                  'location': {
+                    'lat': _riderLocation!.latitude,
+                    'lng': _riderLocation!.longitude,
+                  },
+                  'lastSeen': ServerValue.timestamp,
+                });
+              } catch (e) {
+                print('Error updating rider location: $e');
+              }
+
+              _updateMarkers();
+              _calculateDistance();
+            } catch (e) {
+              print('Error in rider location tracking: $e');
+            }
+          },
+          onError: (error) {
+            print('Rider location stream error: $error');
+          },
+        );
+  }
+
+  void _requestRide() async {
     if (_pickupLocation == null || _destinationLocation == null) {
       _showSnackBar('Please set both pickup and destination locations');
+      return;
+    }
+
+    if (_riderLocation == null) {
+      _showSnackBar('Please set your current location first');
       return;
     }
 
@@ -631,71 +801,100 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
       _rideStatus = 'requested';
     });
 
-    // Calculate distance and fare
-    double distance =
-        Geolocator.distanceBetween(
-          _pickupLocation!.latitude,
-          _pickupLocation!.longitude,
-          _destinationLocation!.latitude,
-          _destinationLocation!.longitude,
-        ) /
-        1000; // Convert to km
+    try {
+      // Calculate distance and fare
+      double distance =
+          Geolocator.distanceBetween(
+            _pickupLocation!.latitude,
+            _pickupLocation!.longitude,
+            _destinationLocation!.latitude,
+            _destinationLocation!.longitude,
+          ) /
+          1000; // Convert to km
 
-    _estimatedFare = distance * 2.5; // $2.5 per km
+      _estimatedFare = distance * 2.5; // $2.5 per km
 
-    _ridesRef.child(_currentRideId).set({
-      'riderId': _userId,
-      'riderName': _userName,
-      'pickup': {
-        'lat': _pickupLocation!.latitude,
-        'lng': _pickupLocation!.longitude,
-        'address': 'Pickup Location',
-      },
-      'destination': {
-        'lat': _destinationLocation!.latitude,
-        'lng': _destinationLocation!.longitude,
-        'address': 'Destination Location',
-      },
-      'status': 'requested',
-      'distance': distance,
-      'estimatedFare': _estimatedFare,
-      'requestedAt': ServerValue.timestamp,
-      'riderLocation': {
-        'lat': _riderLocation!.latitude,
-        'lng': _riderLocation!.longitude,
-        'timestamp': ServerValue.timestamp,
-      },
-    });
+      await _ridesRef.child(_currentRideId).set({
+        'riderId': _userId,
+        'riderName': _userName,
+        'pickup': {
+          'lat': _pickupLocation!.latitude,
+          'lng': _pickupLocation!.longitude,
+          'address': 'Pickup Location',
+        },
+        'destination': {
+          'lat': _destinationLocation!.latitude,
+          'lng': _destinationLocation!.longitude,
+          'address': 'Destination Location',
+        },
+        'status': 'requested',
+        'distance': distance,
+        'estimatedFare': _estimatedFare,
+        'requestedAt': ServerValue.timestamp,
+        'riderLocation': {
+          'lat': _riderLocation!.latitude,
+          'lng': _riderLocation!.longitude,
+          'timestamp': ServerValue.timestamp,
+        },
+      });
 
-    _ridersRef.child(_userId).update({
-      'currentRideId': _currentRideId,
-      'location': {
-        'lat': _riderLocation!.latitude,
-        'lng': _riderLocation!.longitude,
-      },
-    });
+      await _ridersRef.child(_userId).update({
+        'currentRideId': _currentRideId,
+        'location': {
+          'lat': _riderLocation!.latitude,
+          'lng': _riderLocation!.longitude,
+        },
+      });
 
-    _listenToRideUpdates();
-    _showSnackBar('Ride request sent! Looking for drivers...');
+      _listenToRideUpdates();
+      _showSnackBar('Ride request sent! Looking for drivers...');
+    } catch (e) {
+      print('Error requesting ride: $e');
+      _showSnackBar('Failed to request ride. Please try again.');
+      setState(() {
+        _currentRideId = '';
+        _rideStatus = 'idle';
+      });
+    }
   }
 
-  void _cancelRide() {
+  void _cancelRide() async {
     if (_currentRideId.isEmpty) return;
 
-    _ridesRef.child(_currentRideId).update({
-      'status': 'cancelled',
-      'cancelledAt': DateTime.now().millisecondsSinceEpoch,
-    });
+    try {
+      await _ridesRef.child(_currentRideId).update({
+        'status': 'cancelled',
+        'cancelledAt': DateTime.now().millisecondsSinceEpoch,
+      });
 
-    _ridersRef.child(_userId).update({'currentRideId': ''});
+      await _ridersRef.child(_userId).update({'currentRideId': ''});
 
-    setState(() {
-      _currentRideId = '';
-      _rideStatus = 'idle';
-      _estimatedFare = 0.0;
-    });
+      // Clean up streams
+      _positionStream?.cancel();
+      _rideStream?.cancel();
+      _driverLocationStream?.cancel();
+      _rideRequestStream?.cancel();
+      _routeUpdateTimer?.cancel();
 
-    _showSnackBar('Ride cancelled');
+      setState(() {
+        _currentRideId = '';
+        _rideStatus = 'idle';
+        _estimatedFare = 0.0;
+        _pickupLocation = null;
+        _destinationLocation = null;
+        _riderLocation = null;
+        _driverLocation = null;
+        _routePoints.clear();
+        _distanceBetween = 0.0;
+        _isRideActive = false;
+        _isTrackingActive = false;
+      });
+
+      _showSnackBar('Ride cancelled');
+    } catch (e) {
+      print('Error cancelling ride: $e');
+      _showSnackBar('Failed to cancel ride. Please try again.');
+    }
   }
 
   void _listenToRideUpdates() {
@@ -711,27 +910,54 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
         });
 
         if (newStatus == 'accepted') {
-          _showSnackBar('Driver accepted your ride!');
-          _startRiderMode();
+          if (_isDriverMode) {
+            // Driver mode: Load ride data and start listening to rider location
+            _loadRideData(_currentRideId);
+            _listenToRiderLocation();
+          } else {
+            // Rider mode: Start tracking rider location and listening to driver
+            _showSnackBar('Driver accepted your ride!');
+            _startRiderMode();
 
-          if (rideData['driverLocation'] != null) {
-            final driverLocData = rideData['driverLocation'];
-            _driverLocation = LatLng(
-              driverLocData['lat'],
-              driverLocData['lng'],
-            );
+            if (rideData['driverLocation'] != null) {
+              final driverLocData = rideData['driverLocation'];
+              _driverLocation = LatLng(
+                driverLocData['lat'],
+                driverLocData['lng'],
+              );
 
-            if (_pickupLocation != null) {
-              _getRouteDirections(_driverLocation!, _pickupLocation!);
+              if (_pickupLocation != null) {
+                _getRouteDirectionsWithDebounce(
+                  _driverLocation!,
+                  _pickupLocation!,
+                );
+              }
             }
           }
         } else if (newStatus == 'started') {
           _showSnackBar('Driver is on the way!');
         } else if (newStatus == 'completed') {
           _showSnackBar('Ride completed! Thank you for using our service.');
+
+          // Clean up streams
+          _positionStream?.cancel();
+          _rideStream?.cancel();
+          _driverLocationStream?.cancel();
+          _rideRequestStream?.cancel();
+          _routeUpdateTimer?.cancel();
+
           setState(() {
             _currentRideId = '';
             _rideStatus = 'idle';
+            _pickupLocation = null;
+            _destinationLocation = null;
+            _riderLocation = null;
+            _driverLocation = null;
+            _routePoints.clear();
+            _estimatedFare = 0.0;
+            _distanceBetween = 0.0;
+            _isRideActive = false;
+            _isTrackingActive = false;
           });
         }
       }
@@ -741,14 +967,22 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   // ---------------- LOCATION METHODS ----------------
   Future<void> _requestLocationPermissions() async {
     try {
+      // Check if location services are enabled
+      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
+        _showSnackBar('Location services are disabled. Please enable GPS.');
+        return;
+      }
+
       LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
         permission = await Geolocator.requestPermission();
       }
 
       if (permission == LocationPermission.deniedForever) {
-        _showSnackBar(
-          'Location permissions are permanently denied. Please enable in settings.',
+        _showPermissionDialog(
+          'Location Permission Required',
+          'Location permissions are permanently denied. Please enable location permission in settings to use GPS features.',
         );
         return;
       }
@@ -760,15 +994,41 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
         return;
       }
 
-      _showSnackBar(
-        'Location permissions granted! Tap GPS button or map to set location.',
-      );
+      if (permission == LocationPermission.whileInUse ||
+          permission == LocationPermission.always) {
+        _showSnackBar(
+          'Location permissions granted! Tap GPS button or map to set location.',
+        );
+      }
     } catch (e) {
       print('Permission error: $e');
       _showSnackBar(
         'Location service error. You can still tap the map to set location.',
       );
     }
+  }
+
+  void _showPermissionDialog(String title, String message) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text(title),
+        content: Text(message),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              Geolocator.openAppSettings();
+            },
+            child: const Text('Open Settings'),
+          ),
+        ],
+      ),
+    );
   }
 
   Future<void> _getCurrentLocation() async {
@@ -898,6 +1158,20 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
         );
       }
 
+      // Show rider location if available
+      if (_riderLocation != null) {
+        markers.add(
+          Marker(
+            markerId: const MarkerId('rider'),
+            position: _riderLocation!,
+            icon: BitmapDescriptor.defaultMarkerWithHue(
+              BitmapDescriptor.hueBlue,
+            ),
+            infoWindow: const InfoWindow(title: 'Rider Location'),
+          ),
+        );
+      }
+
       // Show pickup location if set
       if (_pickupLocation != null) {
         markers.add(
@@ -988,62 +1262,101 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
   void _updatePolylines() {
     polylines.clear();
 
-    if (_isDriverMode && _driverLocation != null && _pickupLocation != null) {
+    if (_isDriverMode && _driverLocation != null) {
       // Driver to pickup route - use real route if available
-      if (_routePoints.isNotEmpty) {
-        polylines.add(
-          Polyline(
-            polylineId: const PolylineId('driver_to_pickup'),
-            points: _routePoints,
-            color: Colors.green,
-            width: 4,
-          ),
-        );
-      } else {
-        // Fallback to straight line
-        polylines.add(
-          Polyline(
-            polylineId: const PolylineId('driver_to_pickup'),
-            points: [_driverLocation!, _pickupLocation!],
-            color: Colors.green,
-            width: 4,
-          ),
-        );
+      if (_pickupLocation != null && _rideStatus == 'accepted') {
+        if (_routePoints.isNotEmpty) {
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('driver_to_pickup'),
+              points: _routePoints,
+              color: Colors.green,
+              width: 4,
+            ),
+          );
+        } else {
+          // Fallback to straight line
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('driver_to_pickup'),
+              points: [_driverLocation!, _pickupLocation!],
+              color: Colors.green,
+              width: 4,
+            ),
+          );
+        }
       }
 
-      // Pickup to destination route
-      if (_destinationLocation != null) {
+      // Driver to destination route (when ride is started)
+      if (_destinationLocation != null && _rideStatus == 'started') {
+        if (_routePoints.isNotEmpty) {
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('driver_to_destination'),
+              points: _routePoints,
+              color: Colors.blue,
+              width: 4,
+            ),
+          );
+        } else {
+          // Fallback to straight line
+          polylines.add(
+            Polyline(
+              polylineId: const PolylineId('driver_to_destination'),
+              points: [_driverLocation!, _destinationLocation!],
+              color: Colors.blue,
+              width: 4,
+            ),
+          );
+        }
+      }
+
+      // Show rider location as dashed line (for reference)
+      if (_riderLocation != null && _rideStatus == 'accepted') {
         polylines.add(
           Polyline(
-            polylineId: const PolylineId('pickup_to_destination'),
-            points: [_pickupLocation!, _destinationLocation!],
-            color: Colors.blue,
-            width: 3,
-            patterns: [PatternItem.dash(20), PatternItem.gap(10)],
+            polylineId: const PolylineId('driver_to_rider'),
+            points: [_driverLocation!, _riderLocation!],
+            color: Colors.orange,
+            width: 2,
+            patterns: [PatternItem.dash(10), PatternItem.gap(5)],
           ),
         );
       }
     } else if (!_isDriverMode &&
         _riderLocation != null &&
         _driverLocation != null) {
-      // Rider to driver route - use real route if available
-      if (_routePoints.isNotEmpty) {
+      // Rider sees route from driver to pickup (not to rider)
+      if (_pickupLocation != null && _routePoints.isNotEmpty) {
         polylines.add(
           Polyline(
-            polylineId: const PolylineId('rider_to_driver'),
+            polylineId: const PolylineId('driver_to_pickup'),
             points: _routePoints,
-            color: Colors.blue,
+            color: Colors.green,
             width: 3,
           ),
         );
-      } else {
+      } else if (_pickupLocation != null) {
         // Fallback to straight line
         polylines.add(
           Polyline(
-            polylineId: const PolylineId('rider_to_driver'),
-            points: [_riderLocation!, _driverLocation!],
-            color: Colors.blue,
+            polylineId: const PolylineId('driver_to_pickup'),
+            points: [_driverLocation!, _pickupLocation!],
+            color: Colors.green,
             width: 3,
+          ),
+        );
+      }
+
+      // Show pickup to destination route
+      if (_destinationLocation != null && _pickupLocation != null) {
+        polylines.add(
+          Polyline(
+            polylineId: const PolylineId('pickup_to_destination'),
+            points: [_pickupLocation!, _destinationLocation!],
+            color: Colors.blue,
+            width: 2,
+            patterns: [PatternItem.dash(15), PatternItem.gap(8)],
           ),
         );
       }
@@ -1106,6 +1419,17 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
           return 'Rider mode';
       }
     }
+  }
+
+  // ---------------- DEBOUNCING FOR API CALLS ----------------
+  void _getRouteDirectionsWithDebounce(LatLng origin, LatLng destination) {
+    // Cancel previous timer
+    _routeUpdateTimer?.cancel();
+
+    // Set new timer to debounce API calls
+    _routeUpdateTimer = Timer(const Duration(seconds: 2), () {
+      _getRouteDirections(origin, destination);
+    });
   }
 
   // ---------------- GOOGLE DIRECTIONS API ----------------
@@ -1187,6 +1511,70 @@ class _CustomGoogleMapState extends State<CustomGoogleMap> {
     }
 
     return points;
+  }
+
+  // ---------------- RIDE DATA LOADING ----------------
+  void _loadRideData(String rideId) {
+    _ridesRef.child(rideId).once().then((event) {
+      if (event.snapshot.exists) {
+        final rideData = Map<String, dynamic>.from(event.snapshot.value as Map);
+
+        setState(() {
+          // Load pickup location
+          if (rideData['pickup'] != null) {
+            final pickupData = rideData['pickup'];
+            _pickupLocation = LatLng(pickupData['lat'], pickupData['lng']);
+          }
+
+          // Load destination location
+          if (rideData['destination'] != null) {
+            final destData = rideData['destination'];
+            _destinationLocation = LatLng(destData['lat'], destData['lng']);
+          }
+
+          // Load estimated fare
+          if (rideData['estimatedFare'] != null) {
+            _estimatedFare = rideData['estimatedFare'].toDouble();
+          }
+        });
+
+        _updateMarkers();
+
+        // Get route to pickup location
+        if (_driverLocation != null && _pickupLocation != null) {
+          _getRouteDirections(_driverLocation!, _pickupLocation!);
+        }
+      }
+    });
+  }
+
+  void _listenToRiderLocation() {
+    _rideRequestStream?.cancel();
+
+    _rideRequestStream = _ridesRef
+        .child(_currentRideId)
+        .child('riderLocation')
+        .onValue
+        .listen((event) {
+          if (event.snapshot.exists) {
+            final data = Map<String, dynamic>.from(event.snapshot.value as Map);
+            setState(() {
+              _riderLocation = LatLng(data['lat'], data['lng']);
+            });
+            _updateMarkers();
+            _calculateDistance();
+
+            // Get route to pickup location (not to rider)
+            if (_rideStatus == 'accepted' &&
+                _driverLocation != null &&
+                _pickupLocation != null) {
+              _getRouteDirectionsWithDebounce(
+                _driverLocation!,
+                _pickupLocation!,
+              );
+            }
+          }
+        });
   }
 
   // ---------------- UTILS ----------------
